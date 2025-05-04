@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Health Assistant</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='style.css') }}"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+
+    <script>
+      // Track current language
+      let currentLanguage = "{{ language }}";
+      let isListening = false;
+      let recognition = null;
+      let darkMode = false;
+
+      document.addEventListener("DOMContentLoaded", function () {
+        var chatBox = document.getElementById("chat-box");
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+        // Add timestamp to existing messages
+        addTimestampsToMessages();
+
+        // Check if language is already set
+        const languageSet = "{{ language }}" !== "None";
+        if (!languageSet) {
+          // If no language is set, show the language selection buttons
+          sendInitialMessage();
+        } else {
+          // Set the current language variable
+          currentLanguage = "{{ language }}";
+        }
+
+        // Check for saved theme preference
+        if (localStorage.getItem("darkMode") === "true") {
+          toggleDarkMode();
+        }
+
+        // Add animation to the header
+        animateHeader();
+
+        // Setup file upload listeners
+        setupFileUpload();
+      });
+
+      function setupFileUpload() {
+        const fileInput = document.getElementById("report-file");
+        const uploadForm = document.getElementById("upload-form");
+        const uploadBtn = document.getElementById("upload-btn");
+        const fileLabel = document.getElementById("file-label");
+
+        // Show filename when selected
+        fileInput.addEventListener("change", function () {
+          if (this.files.length > 0) {
+            const fileName = this.files[0].name;
+            fileLabel.textContent = fileName;
+            uploadBtn.disabled = false;
+          } else {
+            updateFileLabelText();
+            uploadBtn.disabled = true;
+          }
+        });
+
+        // Handle file upload
+        uploadForm.addEventListener("submit", function (e) {
+          e.preventDefault();
+
+          if (fileInput.files.length === 0) {
+            showNotification(getLocalizedText("please_select_file"));
+            return;
+          }
+
+          const formData = new FormData();
+          formData.append("report_file", fileInput.files[0]);
+
+          // Show loading state
+          uploadBtn.disabled = true;
+          uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+          // Add user message about uploading
+          const now = new Date();
+          const timeString =
+            now.getHours().toString().padStart(2, "0") +
+            ":" +
+            now.getMinutes().toString().padStart(2, "0");
+
+          const fileName = fileInput.files[0].name;
+          const userMsg = getLocalizedText("uploaded_report", fileName);
+
+          let userMsgHtml = `<div class="user-message" data-time="${timeString}"><div>${userMsg}</div></div>`;
+          document.getElementById("chat-box").innerHTML += userMsgHtml;
+          scrollToBottom();
+
+          // Show typing indicator
+          showTypingIndicator();
+
+          // Send to server
+          fetch("/upload_report", {
+            method: "POST",
+            body: formData,
+          })
+            .then((response) => response.json())
+            .then((data) => {
+              // Hide typing indicator
+              hideTypingIndicator();
+
+              // Reset upload form
+              uploadBtn.disabled = false;
+              uploadBtn.innerHTML = '<i class="fas fa-upload"></i>';
+              fileInput.value = "";
+              updateFileLabelText();
+
+              // Close upload panel
+              toggleUploadPanel();
+
+              if (data.success) {
+                // Display response
+                let botMsg = `<div class="bot-message lab-report-message" data-time="${timeString}"><div>${data.response}</div></div>`;
+                document.getElementById("chat-box").innerHTML += botMsg;
+                scrollToBottom();
+              } else {
+                showNotification(data.error);
+              }
+            })
+            .catch((error) => {
+              hideTypingIndicator();
+              uploadBtn.disabled = false;
+              uploadBtn.innerHTML = '<i class="fas fa-upload"></i>';
+              showNotification("Error uploading file: " + error.message);
+            });
+        });
+      }
+
+      function getLocalizedText(key, param) {
+        const texts = {
+          please_select_file: {
+            english: "Please select a file first",
+            gujarati: "કૃપા કરીને પહેલા ફાઇલ પસંદ કરો",
+            hindi: "कृपया पहले फ़ाइल चुनें",
+          },
+          uploaded_report: {
+            english: `I've uploaded a laboratory report: ${param}`,
+            gujarati: `મેં લેબોરેટરી રિપોર્ટ અપલોડ કર્યો છે: ${param}`,
+            hindi: `मैंने प्रयोगशाला रिपोर्ट अपलोड की है: ${param}`,
+          },
+          choose_file: {
+            english: "Choose report file",
+            gujarati: "રિપોર્ટ ફાઇલ પસંદ કરો",
+            hindi: "रिपोर्ट फ़ाइल चुनें",
+          },
+          upload_panel_title: {
+            english: "Upload Laboratory Report",
+            gujarati: "લેબોરેટરી રિપોર્ટ અપલોડ કરો",
+            hindi: "प्रयोगशाला रिपोर्ट अपलोड करें",
+          },
+          type_symptoms: {
+            english: "Type your symptoms...",
+            gujarati: "તમારા લક્ષણો લખો...",
+            hindi: "अपने लक्षण लिखें...",
+          },
+          clear_chat_confirm: {
+            english: "Are you sure you want to clear the chat?",
+            gujarati: "શું તમે ખરેખર ચેટ સાફ કરવા માંગો છો?",
+            hindi: "क्या आप वाकई चैट साफ़ करना चाहते हैं?",
+          },
+          language_set: {
+            english: "Language set to English",
+            gujarati: "ભાષા ગુજરાતી પર સેટ કરી",
+            hindi: "भाषा हिंदी पर सेट की गई",
+          },
+          listening: {
+            english: "Listening...",
+            gujarati: "સાંભળી રહ્યું છે...",
+            hindi: "सुन रहा है...",
+          },
+        };
+
+        return texts[key][currentLanguage] || texts[key]["english"];
+      }
+
+      function toggleUploadPanel() {
+        const panel = document.getElementById("upload-panel");
+        panel.classList.toggle("show");
+
+        // Reset form when closing
+        if (!panel.classList.contains("show")) {
+          document.getElementById("report-file").value = "";
+          updateFileLabelText();
+          document.getElementById("upload-btn").disabled = true;
+        }
+
+        // Update panel title based on language
+        document.getElementById("upload-panel-title").textContent =
+          getLocalizedText("upload_panel_title");
+      }
+
+      function animateHeader() {
+        const header = document.querySelector(".navbar");
+        header.classList.add("animate-header");
+
+        setTimeout(() => {
+          header.classList.remove("animate-header");
+        }, 1000);
+      }
+
+      function toggleDarkMode() {
+        darkMode = !darkMode;
+        document.body.classList.toggle("dark-mode");
+
+        // Save preference
+        localStorage.setItem("darkMode", darkMode);
+
+        // Update icon
+        const themeIcon = document.getElementById("theme-icon");
+        if (darkMode) {
+          themeIcon.classList.remove("fa-moon");
+          themeIcon.classList.add("fa-sun");
+        } else {
+          themeIcon.classList.remove("fa-sun");
+          themeIcon.classList.add("fa-moon");
+        }
+      }
+
+      // Setup speech recognition with the correct language
+      function setupSpeechRecognition() {
+        // Check if the browser supports speech recognition
+        if (
+          !("webkitSpeechRecognition" in window) &&
+          !("SpeechRecognition" in window)
+        ) {
+          showNotification(
+            "Speech recognition is not supported in your browser. Try Chrome or Edge."
+          );
+          return null;
+        }
+
+        // Initialize speech recognition
+        recognition = new (window.SpeechRecognition ||
+          window.webkitSpeechRecognition)();
+
+        // Set language based on currentLanguage
+        if (currentLanguage === "gujarati") {
+          recognition.lang = "gu-IN"; // Set to Gujarati
+        } else if (currentLanguage === "hindi") {
+          recognition.lang = "hi-IN"; // Set to Hindi
+        } else {
+          recognition.lang = "en-US"; // Default to English
+        }
+
+        recognition.continuous = false;
+        recognition.interimResults = false;
+
+        // Handle recognition results
+        recognition.onresult = function (event) {
+          const transcript = event.results[0][0].transcript;
+          document.getElementById("user-input").value = transcript;
+          // Stop listening after receiving result
+          stopVoiceRecognition();
+          // Submit the form to send the message
+          document
+            .getElementById("chat-form")
+            .dispatchEvent(new Event("submit"));
+        };
+
+        recognition.onerror = function (event) {
+          console.error("Speech recognition error", event.error);
+          stopVoiceRecognition();
+          showNotification("Speech recognition error: " + event.error);
+        };
+
+        recognition.onend = function () {
+          stopVoiceRecognition();
+        };
+
+        return recognition;
+      }
+
+      function showNotification(message) {
+        const notification = document.createElement("div");
+        notification.className = "notification";
+        notification.textContent = message;
+
+        document.body.appendChild(notification);
+
+        // Animate in
+        setTimeout(() => {
+          notification.classList.add("show");
+        }, 10);
+
+        // Remove after 3 seconds
+        setTimeout(() => {
+          notification.classList.remove("show");
+          setTimeout(() => {
+            notification.remove();
+          }, 300);
+        }, 3000);
+      }
+
+      // Start voice recognition
+      function toggleVoiceRecognition() {
+        if (isListening) {
+          stopVoiceRecognition();
+        } else {
+          startVoiceRecognition();
+        }
+      }
+
+      function startVoiceRecognition() {
+        if (!recognition) {
+          recognition = setupSpeechRecognition();
+          if (!recognition) return; // Exit if speech recognition is not supported
+        }
+
+        // Update recognition language in case it changed
+        if (currentLanguage === "gujarati") {
+          recognition.lang = "gu-IN";
+        } else if (currentLanguage === "hindi") {
+          recognition.lang = "hi-IN";
+        } else {
+          recognition.lang = "en-US";
+        }
+
+        try {
+          recognition.start();
+          isListening = true;
+
+          // Update UI to show recording state
+          document.getElementById("voice-btn").classList.add("recording");
+
+          // Change microphone icon to indicate recording
+          document.getElementById("mic-icon").classList.remove("fa-microphone");
+          document
+            .getElementById("mic-icon")
+            .classList.add("fa-microphone-slash");
+
+          // Show notification
+          showNotification(getLocalizedText("listening"));
+        } catch (error) {
+          console.error("Error starting speech recognition:", error);
+          showNotification("Error starting speech recognition");
+        }
+      }
+
+      function stopVoiceRecognition() {
+        if (recognition && isListening) {
+          recognition.stop();
+        }
+        isListening = false;
+
+        // Update UI to show stopped state
+        document.getElementById("voice-btn").classList.remove("recording");
+
+        // Change microphone icon back
+        document
+          .getElementById("mic-icon")
+          .classList.remove("fa-microphone-slash");
+        document.getElementById("mic-icon").classList.add("fa-microphone");
+      }
+
+      function addTimestampsToMessages() {
+        const messages = document.querySelectorAll(
+          ".user-message, .bot-message"
+        );
+        messages.forEach((message) => {
+          if (!message.getAttribute("data-time")) {
+            const now = new Date();
+            const timeString =
+              now.getHours().toString().padStart(2, "0") +
+              ":" +
+              now.getMinutes().toString().padStart(2, "0");
+            message.setAttribute("data-time", timeString);
+          }
+        });
+      }
+
+      function sendInitialMessage() {
+        // Show typing indicator
+        showTypingIndicator();
+
+        fetch("/send_message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_input: "" }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            // Hide typing indicator
+            hideTypingIndicator();
+
+            if (data.show_language_selection) {
+              const now = new Date();
+              const timeString =
+                now.getHours().toString().padStart(2, "0") +
+                ":" +
+                now.getMinutes().toString().padStart(2, "0");
+
+              let botMsg = `<div class="bot-message welcome-message" data-time="${timeString}"><div>${data.response}</div></div>`;
+              document.getElementById("chat-box").innerHTML += botMsg;
+
+              // Show language selection buttons
+              document.getElementById("language-selection").style.display =
+                "flex";
+              scrollToBottom();
+            }
+          });
+      }
+
+      function setLanguage(language) {
+        // Update current language
+        currentLanguage = language;
+
+        // Hide language buttons to prevent multiple clicks
+        document.getElementById("language-selection").style.display = "none";
+
+        // Show typing indicator
+        showTypingIndicator();
+
+        // Reset speech recognition to use new language
+        if (recognition) {
+          stopVoiceRecognition();
+          recognition = null;
+        }
+
+        fetch("/set_language", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ language: language }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            // Hide typing indicator
+            hideTypingIndicator();
+
+            if (data.success) {
+              const now = new Date();
+              const timeString =
+                now.getHours().toString().padStart(2, "0") +
+                ":" +
+                now.getMinutes().toString().padStart(2, "0");
+
+              // Show welcome message
+              let botMsg = `<div class="bot-message welcome-message" data-time="${timeString}"><div>${data.welcome_message}</div></div>`;
+              document.getElementById("chat-box").innerHTML += botMsg;
+
+              // Update placeholder text and file upload text based on language
+              document.getElementById("user-input").placeholder =
+                getLocalizedText("type_symptoms");
+              updateFileLabelText();
+              document.getElementById("upload-panel-title").textContent =
+                getLocalizedText("upload_panel_title");
+
+              // Show some common symptom categories for quick selection
+              if (language === "english") {
+                showQuickCategories([
+                  "Fever & Cold",
+                  "Headache",
+                  "Stomach Pain",
+                  "Allergies",
+                  "Joint Pain",
+                ]);
+              } else if (language === "gujarati") {
+                showQuickCategories([
+                  "તાવ અને શરદી",
+                  "માથાનો દુખાવો",
+                  "પેટનો દુખાવો",
+                  "એલર્જી",
+                  "સાંધાનો દુખાવો",
+                ]);
+              } else {
+                // hindi
+                showQuickCategories([
+                  "बुखार और जुकाम",
+                  "सिरदर्द",
+                  "पेट दर्द",
+                  "एलर्जी",
+                  "जोड़ों का दर्द",
+                ]);
+              }
+
+              // Show chat form
+              document.getElementById("chat-form").style.display = "flex";
+              scrollToBottom();
+
+              // Show notification
+              showNotification(getLocalizedText("language_set"));
+            }
+          });
+      }
+
+      function showQuickCategories(categories) {
+        let categoriesHTML = '<div class="health-categories">';
+        categories.forEach((category) => {
+          categoriesHTML += `<div class="category-pill" onclick="selectCategory('${category}')">${category}</div>`;
+        });
+        categoriesHTML += "</div>";
+
+        const botMessage = document.querySelector(".welcome-message");
+        botMessage.innerHTML += categoriesHTML;
+      }
+
+      function selectCategory(category) {
+        document.getElementById("user-input").value = category;
+        document.getElementById("chat-form").dispatchEvent(new Event("submit"));
+      }
+
+      function showTypingIndicator() {
+        const typingHTML = `
+                <div id="typing-indicator" class="bot-message" style="background: transparent; box-shadow: none; padding: 5px 10px;">
+                    <div class="typing-indicator">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
+            `;
+        document.getElementById("chat-box").innerHTML += typingHTML;
+        scrollToBottom();
+      }
+
+      function hideTypingIndicator() {
+        const indicator = document.getElementById("typing-indicator");
+        if (indicator) {
+          indicator.remove();
+        }
+      }
+
+      function scrollToBottom() {
+        var chatBox = document.getElementById("chat-box");
+        chatBox.scrollTop = chatBox.scrollHeight;
+      }
+
+      function closeWindow() {
+        window.location.href = "http://localhost:5173/";
+      }
+
+      function clearChat() {
+        // Show confirmation dialog
+        if (confirm(getLocalizedText("clear_chat_confirm"))) {
+          // Reload the page to clear the session
+          window.location.reload();
+        }
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        const chatForm = document.getElementById("chat-form");
+        const userInput = document.getElementById("user-input");
+        const chatBox = document.getElementById("chat-box");
+
+        chatForm.addEventListener("submit", function (event) {
+          event.preventDefault(); // Stop form from reloading the page
+
+          let message = userInput.value.trim();
+          if (message === "") return;
+
+          // Add current time
+          const now = new Date();
+          const timeString =
+            now.getHours().toString().padStart(2, "0") +
+            ":" +
+            now.getMinutes().toString().padStart(2, "0");
+
+          // Append user message instantly
+          let userMsg = `<div class="user-message" data-time="${timeString}"><div>${message}</div></div>`;
+          chatBox.innerHTML += userMsg;
+          scrollToBottom();
+
+          // Clear input field after sending message
+          userInput.value = "";
+
+          // Show typing indicator
+          showTypingIndicator();
+
+          // Send message via AJAX
+          fetch("/send_message", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_input: message }),
+          })
+            .then((response) => response.json())
+            .then((data) => {
+              // Hide typing indicator
+              hideTypingIndicator();
+
+              if (data.response) {
+                // Add slight delay to simulate thinking
+                setTimeout(() => {
+                  let botMsg = `<div class="bot-message" data-time="${timeString}"><div>${data.response}</div></div>`;
+                  chatBox.innerHTML += botMsg;
+                  scrollToBottom();
+                }, 500);
+              }
+            });
+        });
+
+        // Add input field auto-resize
+        userInput.addEventListener("input", function () {
+          this.style.height = "auto";
+          this.style.height = this.scrollHeight + "px";
+
+          // Reset if empty
+          if (this.value === "") {
+            this.style.height = "";
+          }
+        });
+      });
+    </script>
+  </head>
+  <body>
+    <header class="navbar">
+      <div class="logo-container">
+        <i class="fas fa-heartbeat logo-icon"></i>
+        <h1 class="logo">Health Assistant</h1>
+      </div>
+      <div class="nav-controls">
+        <button
+          class="icon-btn"
+          onclick="toggleDarkMode()"
+          title="Toggle dark mode"
+        >
+          <i id="theme-icon" class="fas fa-moon"></i>
+        </button>
+        <!-- <button
+          class="icon-btn"
+          onclick="toggleUploadPanel()"
+          title="Upload lab report"
+        >
+          <i class="fas fa-file-medical"></i>
+        </button> -->
+        <button class="icon-btn" onclick="clearChat()" title="Clear chat">
+          <i class="fas fa-trash-alt"></i>
+        </button>
+        <button class="close-btn" onclick="closeWindow();">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+    </header>
+
+    <div class="chat-container">
+      <div class="chat-header">
+        <div class="assistant-info">
+          <div class="assistant-avatar">
+            <i class="fas fa-user-md"></i>
+          </div>
+          <div class="assistant-status">
+            <div class="assistant-name">Health Assistant</div>
+            <div class="assistant-availability">
+              <span class="status-dot"></span>
+              <span class="status-text">Online</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Upload Panel -->
+      <div id="upload-panel" class="upload-panel">
+        <h3 id="upload-panel-title">Upload Laboratory Report</h3>
+        <form id="upload-form" enctype="multipart/form-data">
+          <div class="file-input-container">
+            <input
+              type="file"
+              id="report-file"
+              name="report_file"
+              accept=".txt,.pdf,.doc,.docx,.csv"
+            />
+            <label for="report-file" class="file-label">
+              <i class="fas fa-file-upload"></i>
+              <span id="file-label">Choose report file</span>
+            </label>
+          </div>
+          <button type="submit" id="upload-btn" disabled>
+            <i class="fas fa-upload"></i>
+          </button>
+        </form>
+      </div>
+
+      <div id="chat-box" class="chat-box">
+        {% for message in messages %} {% set time = '00:00' %}
+        <div
+          class="{{ 'user-message' if message.role == 'user' else 'bot-message' }} {% if loop.first and message.role == 'assistant' %}welcome-message{% endif %}"
+          data-time="{{ time }}"
+        >
+          <div>{{ message.content | safe }}</div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <!-- Language selection buttons -->
+      <div
+        id="language-selection"
+        class="language-buttons"
+        style="display: none"
+      >
+        <button type="button" class="lang-btn" onclick="setLanguage('english')">
+          <i class="fas fa-globe-americas"></i>&nbsp; English
+        </button>
+        <button
+          type="button"
+          class="lang-btn"
+          onclick="setLanguage('gujarati')"
+        >
+          <i class="fas fa-globe-asia"></i>&nbsp; ગુજરાતી
+        </button>
+        <button type="button" class="lang-btn" onclick="setLanguage('hindi')">
+          <i class="fas fa-globe-asia"></i>&nbsp; हिंदी
+        </button>
+      </div>
+
+      <form
+        id="chat-form"
+        {%
+        if
+        language
+        is
+        none
+        %}style="display: none;"
+        {%
+        endif
+        %}
+      >
+        <div class="input-container">
+          <div class="input-left-buttons">
+            <button
+              type="button"
+              class="upload-btn"
+              onclick="toggleUploadPanel()"
+              title="Upload lab report"
+            >
+              <i class="fas fa-file-medical"></i>
+            </button>
+          </div>
+          <textarea
+            id="user-input"
+            name="user_input"
+            placeholder="Type your symptoms..."
+            required
+            rows="1"
+          ></textarea>
+          <div class="input-buttons">
+            <button
+              type="button"
+              id="voice-btn"
+              onclick="toggleVoiceRecognition()"
+              title="Voice input"
+            >
+              <i id="mic-icon" class="fas fa-microphone"></i>
+            </button>
+            <button type="submit" class="send-btn">
+              <i class="fas fa-paper-plane"></i>
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </body>
+</html>
