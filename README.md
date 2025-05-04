@@ -1,26 +1,27 @@
-🩺 Healthcare Chatbot
+# 🩺 Healthcare Chatbot
 
 An AI-powered, multilingual chatbot for disease prediction and lab report explanation using Python, Flask, and a RAG (Retrieval-Augmented Generation) model.
 
-🚀 Features
+## 🚀 Features:
 
-🤖 AI-based disease prediction from user symptoms
+- 🤖 AI-based disease prediction from user symptoms
 
-🌐 Multilingual support for broader accessibility
+- 🌐 Multilingual support for broader accessibility
 
-📄 Lab report interpretation in layman's terms
+- 📄 Lab report interpretation in layman's terms
 
-🔄 Real-time response generation using RAG model
+- 🔄 Real-time response generation using RAG model
 
-🌐 Deployed on Flask for easy web access
+- 🌐 Deployed on Flask for easy web access
 
 
-🛠️ Tech Stack
-Backend: Python, Flask
+## 🛠️ Tech Stack
 
-AI Model: Retrieval-Augmented Generation (RAG)
+- Backend: Python, Flask
 
-NLP: Custom Language Models
+- AI Model: Retrieval-Augmented Generation (RAG)
 
-Frontend: HTML, CSS (via Flask templates)
+- NLP: Custom Language Models
+
+- Frontend: HTML, CSS (via Flask templates)
 
